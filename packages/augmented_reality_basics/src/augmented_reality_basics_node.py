@@ -32,6 +32,8 @@ class AugmentedRealityBasics(DTROS):
             self.cam_calibration = self.read_yaml_file(f'/data/config/calibrations/camera_intrinsic/default.yaml')
         else:
             self.cam_calibration = self.read_yaml_file(f'/data/config/calibrations/camera_intrinsic/{self.veh_name}.yaml')
+        self.cam_height = 480
+        self.cam_width = 640
         
         #Load Map
         rospy.loginfo("[AugmentedRealityBasics]: Loading Map ...")
@@ -45,9 +47,13 @@ class AugmentedRealityBasics(DTROS):
         
         # Publishers
         rospy.loginfo("[AugmentedRealityBasics]: Initializing Publishers ...")
-        self.mod_img_pub = rospy.Publisher(f'augmented_reality_basics_node/{self.map_name}/image/compressed', CompressedImage, queue_size=10)
+        self.mod_img_pub = rospy.Publisher(f'augmented_reality_basics_node/{self.map_name}/image/compressed', CompressedImage, queue_size=1)
+        self.deb_1 = rospy.Publisher(f'augmented_reality_basics_node/{self.map_name}/image/debug/undistorted', CompressedImage, queue_size=1)
 
         self.cv_bridge = CvBridge()
+
+        self.ground2pixel( self.map_dict['points'] )
+        rospy.loginfo(f"Debug: map_dict['points'] = {self.map_dict['points']}")
 
         rospy.loginfo("[AugmentedRealityBasics]: Initialized.")
 
@@ -57,14 +63,12 @@ class AugmentedRealityBasics(DTROS):
         img = self.cv_bridge.compressed_imgmsg_to_cv2(imgmsg)
 
         #process image
-        undistorted_image = process_image(img)
+        undistorted_image = self.process_image(img)
+        #debug
+        undistorted_image_msg = self.cv_bridge.cv2_to_compressed_imgmsg(undistorted_image)
 
-        #project ground to img pixels
-        ground_pixels = []
-        for point in self.map_dict['points'].values():
-            ground_pixels.append(point[1])
-
-        img_pixels = ground2pixel(ground_pixels)
+        #project points to img pixels
+        #done only once        
 
         #render modified image with segments
         modified_image = self.render_segments(undistorted_image, self.map_dict['segments'])
@@ -79,12 +83,12 @@ class AugmentedRealityBasics(DTROS):
 
         for seg in segments:
 
-            pt_x_string = seg['points'][0]
-            pt_x = self.map_dict['points'][pt_x_string][1]
-            pt_y_string = seg['points'][1]
-            pt_y = self.map_dict['points'][pt_y_string][1]
+            pt_1_string = seg['points'][0]
+            pt_1 = self.map_dict['points'][pt_1_string][1]
+            pt_2_string = seg['points'][1]
+            pt_2 = self.map_dict['points'][pt_2_string][1]
 
-            draw_segment(img, pt_x, pt_y, seg['color'])
+            self.draw_segment(img, pt_1, pt_2, seg['color'])
 
         return img
 
@@ -116,39 +120,39 @@ class AugmentedRealityBasics(DTROS):
             
             rate.sleep()
 
-############## Augmenter
 
-def process_image(img):
+    def process_image(self, img):
 
-    undistorted_img = img #placeholder
+        undistorted_img = img #placeholder
 
-    return undistorted_img
+        return undistorted_img
 
-def ground2pixel(ground_pixels):
+    def ground2pixel(self, ground_points_dict):
+        """
+        Transforms point list from their reference frame to the image pixels frame.
+        """
+        for point in ground_points_dict.values(): #reference frame = image01
+                point[0] = "image"
+                point[1][0] *= self.cam_height
+                point[1][1] *= self.cam_width
 
-    img_pixels = ground_pixels #placeholder
-
-    return ground_pixels
-
-def draw_segment(image, pt_x, pt_y, color):
+    def draw_segment(self, image, start_point, end_point, color):
         
-    defined_colors = {
-        'red': ['rgb', [1, 0, 0]],
-        'green': ['rgb', [0, 1, 0]],
-        'blue': ['rgb', [0, 0, 1]],
-        'yellow': ['rgb', [1, 1, 0]],
-        'magenta': ['rgb', [1, 0 , 1]],
-        'cyan': ['rgb', [0, 1, 1]],
-        'white': ['rgb', [1, 1, 1]],
-        'black': ['rgb', [0, 0, 0]]}
+        defined_colors = {
+            'red': ['rgb', [1, 0, 0]],
+            'green': ['rgb', [0, 1, 0]],
+            'blue': ['rgb', [0, 0, 1]],
+            'yellow': ['rgb', [1, 1, 0]],
+            'magenta': ['rgb', [1, 0 , 1]],
+            'cyan': ['rgb', [0, 1, 1]],
+            'white': ['rgb', [1, 1, 1]],
+            'black': ['rgb', [0, 0, 0]]}
         
-    _color_type, [r, g, b] = defined_colors[color]
+        _color_type, [r, g, b] = defined_colors[color]
         
-    cv2.line(image, (pt_x[0], pt_y[0]), (pt_x[1], pt_y[1]), (b * 255, g * 255, r * 255), 5)
+        cv2.line(image, (start_point[1], start_point[0]), (end_point[1], end_point[0]), (b * 255, g * 255, r * 255), 5)
         
-    return image
-
-##############
+        return image
 
 
 if __name__ == '__main__':
