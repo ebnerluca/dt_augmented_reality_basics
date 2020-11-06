@@ -26,14 +26,34 @@ class AugmentedRealityBasics(DTROS):
         rospy.loginfo("[AugmentedRealityBasics]: Vehicle Name = %s" %self.veh_name)
 
         # Load Camara Calibration
-        rospy.loginfo("[AugmentedRealityBasics]: Loading Camera calibration ...")
+        # Intrinsics
+        rospy.loginfo("[AugmentedRealityBasics]: Loading Camera Calibration Intrinsics ...")
         if(not os.path.isfile(f'/data/config/calibrations/camera_intrinsic/{self.veh_name}.yaml')):
             rospy.logwarn(f'[AugmentedRealityBasics]: Could not find {self.veh_name}.yaml. Loading default.yaml')
-            self.cam_calibration = self.read_yaml_file(f'/data/config/calibrations/camera_intrinsic/default.yaml')
+            self.camera_calibration_intrinsics = self.read_yaml_file(f'/data/config/calibrations/camera_intrinsic/default.yaml')
         else:
-            self.cam_calibration = self.read_yaml_file(f'/data/config/calibrations/camera_intrinsic/{self.veh_name}.yaml')
-        self.cam_height = 480
-        self.cam_width = 640
+            self.camera_calibration_intrinsics = self.read_yaml_file(f'/data/config/calibrations/camera_intrinsic/{self.veh_name}.yaml')
+        
+        self._K, self._D, self._R, self._P, self.cam_width, self.cam_height, self._distortion_model = self.extract_camera_data(self.camera_calibration_intrinsics)
+        self._K_rect, self._roi = cv2.getOptimalNewCameraMatrix(self._K, self._D, (self.cam_width, self.cam_height), 1)
+        #rospy.loginfo(f"[AugmentedRealityBasics]: roi: {self._roi}")
+        #rospy.loginfo(f"[AugmentedRealityBasics]: K_rect: \n{self._K_rect}")
+        #rospy.loginfo(f"[AugmentedRealityBasics]: K: \n{self._K}")
+        #rospy.loginfo(f"[AugmentedRealityBasics]: D: \n{self._D}")
+        #rospy.loginfo(f"[AugmentedRealityBasics]: R: \n{self._R}")
+        #rospy.loginfo(f"[AugmentedRealityBasics]: P: \n{self._P}")
+        #rospy.loginfo(f"[AugmentedRealityBasics]: cam_width: {self.cam_width}")
+        #rospy.loginfo(f"[AugmentedRealityBasics]: cam_height: {self.cam_height}")
+
+        rospy.loginfo("[AugmentedRealityBasics]: Loading Camera Calibration Extrinsics ...")
+        if(not os.path.isfile(f'/data/config/calibrations/camera_extrinsic/{self.veh_name}.yaml')):
+            rospy.logwarn(f'[AugmentedRealityBasics]: Could not find {self.veh_name}.yaml. Loading default.yaml')
+            extrinsics = self.read_yaml_file(f'/data/config/calibrations/camera_extrinsic/default.yaml')
+        else:
+            extrinsics = self.read_yaml_file(f'/data/config/calibrations/camera_extrinsic/{self.veh_name}.yaml')
+        
+        self.camera_calibration_extrinsics = np.array(extrinsics["homography"]).reshape(3, 3)
+        #rospy.loginfo(f"[AugmentedRealityBasics]: Extrinsics: {self.camera_calibration_extrinsics}")
         
         #Load Map
         rospy.loginfo("[AugmentedRealityBasics]: Loading Map ...")
@@ -48,12 +68,10 @@ class AugmentedRealityBasics(DTROS):
         # Publishers
         rospy.loginfo("[AugmentedRealityBasics]: Initializing Publishers ...")
         self.mod_img_pub = rospy.Publisher(f'augmented_reality_basics_node/{self.map_name}/image/compressed', CompressedImage, queue_size=1)
-        self.deb_1 = rospy.Publisher(f'augmented_reality_basics_node/{self.map_name}/image/debug/undistorted', CompressedImage, queue_size=1)
 
         self.cv_bridge = CvBridge()
 
         self.ground2pixel( self.map_dict['points'] )
-        rospy.loginfo(f"Debug: map_dict['points'] = {self.map_dict['points']}")
 
         rospy.loginfo("[AugmentedRealityBasics]: Initialized.")
 
@@ -64,9 +82,7 @@ class AugmentedRealityBasics(DTROS):
 
         #process image
         undistorted_image = self.process_image(img)
-        #debug
-        undistorted_image_msg = self.cv_bridge.cv2_to_compressed_imgmsg(undistorted_image)
-
+        
         #project points to img pixels
         #done only once        
 
@@ -122,9 +138,13 @@ class AugmentedRealityBasics(DTROS):
 
 
     def process_image(self, img):
-
-        undistorted_img = img #placeholder
-
+        """
+        Rectify image
+        """
+        undistorted_img = cv2.undistort(img, self._K, self._D, None, self._K_rect)
+        # Optionally crop image to ROI
+        #x, y, w, h = self._roi
+        #undistorted_img = undistorted_img[y:y + h, x:x + w]
         return undistorted_img
 
     def ground2pixel(self, ground_points_dict):
@@ -153,6 +173,17 @@ class AugmentedRealityBasics(DTROS):
         cv2.line(image, (start_point[1], start_point[0]), (end_point[1], end_point[0]), (b * 255, g * 255, r * 255), 5)
         
         return image
+
+    @staticmethod
+    def extract_camera_data(data):
+        k = np.array(data['camera_matrix']['data']).reshape(3, 3)
+        d = np.array(data['distortion_coefficients']['data'])
+        r = np.array(data['rectification_matrix']['data']).reshape(3, 3)
+        p = np.array(data['projection_matrix']['data']).reshape(3, 4)
+        width = data['image_width']
+        height = data['image_height']
+        distortion_model = data['distortion_model']
+        return k, d, r, p, width, height, distortion_model
 
 
 if __name__ == '__main__':
