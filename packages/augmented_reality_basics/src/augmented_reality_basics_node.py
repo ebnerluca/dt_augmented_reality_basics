@@ -28,6 +28,7 @@ class AugmentedRealityBasics(DTROS):
         # Load Camara Calibration
         # Intrinsics
         rospy.loginfo("[AugmentedRealityBasics]: Loading Camera Calibration Intrinsics ...")
+
         if(not os.path.isfile(f'/data/config/calibrations/camera_intrinsic/{self.veh_name}.yaml')):
             rospy.logwarn(f'[AugmentedRealityBasics]: Could not find {self.veh_name}.yaml. Loading default.yaml')
             self.camera_calibration_intrinsics = self.read_yaml_file(f'/data/config/calibrations/camera_intrinsic/default.yaml')
@@ -45,15 +46,19 @@ class AugmentedRealityBasics(DTROS):
         #rospy.loginfo(f"[AugmentedRealityBasics]: cam_width: {self.cam_width}")
         #rospy.loginfo(f"[AugmentedRealityBasics]: cam_height: {self.cam_height}")
 
+        # Extrinsics
         rospy.loginfo("[AugmentedRealityBasics]: Loading Camera Calibration Extrinsics ...")
+
         if(not os.path.isfile(f'/data/config/calibrations/camera_extrinsic/{self.veh_name}.yaml')):
             rospy.logwarn(f'[AugmentedRealityBasics]: Could not find {self.veh_name}.yaml. Loading default.yaml')
             extrinsics = self.read_yaml_file(f'/data/config/calibrations/camera_extrinsic/default.yaml')
         else:
             extrinsics = self.read_yaml_file(f'/data/config/calibrations/camera_extrinsic/{self.veh_name}.yaml')
         
-        self.camera_calibration_extrinsics = np.array(extrinsics["homography"]).reshape(3, 3)
+        self.camera_calibration_extrinsics = np.array(extrinsics["homography"]).reshape(3,3)
+        self.camera_calibration_extrinsics_inv = np.linalg.inv(self.camera_calibration_extrinsics)
         #rospy.loginfo(f"[AugmentedRealityBasics]: Extrinsics: {self.camera_calibration_extrinsics}")
+        
         
         #Load Map
         rospy.loginfo("[AugmentedRealityBasics]: Loading Map ...")
@@ -61,18 +66,23 @@ class AugmentedRealityBasics(DTROS):
         rospy.loginfo("[AugmentedRealityBasics]: Map Name: %s" %self.map_name)
         self.map_dict = self.read_yaml_file(os.environ.get('DT_REPO_PATH', '/') + '/packages/augmented_reality_basics/maps/' + self.map_name + '.yaml')
 
+        
         # Subscribers
         rospy.loginfo("[AugmentedRealityBasics]: Initializing Subscribers ...")
         self.image_subscriber = rospy.Subscriber('camera_node/image/compressed', CompressedImage, self.callback)
+        
         
         # Publishers
         rospy.loginfo("[AugmentedRealityBasics]: Initializing Publishers ...")
         self.mod_img_pub = rospy.Publisher(f'augmented_reality_basics_node/{self.map_name}/image/compressed', CompressedImage, queue_size=1)
 
+        
         self.cv_bridge = CvBridge()
+        
 
         self.ground2pixel( self.map_dict['points'] )
 
+        
         rospy.loginfo("[AugmentedRealityBasics]: Initialized.")
 
     def callback(self, imgmsg):
@@ -152,11 +162,26 @@ class AugmentedRealityBasics(DTROS):
         Transforms point list from their reference frame to the image pixels frame.
         """
         for point in ground_points_dict.values(): #reference frame = image01
-                point[0] = "image"
-                point[1][0] *= self.cam_height
-                point[1][1] *= self.cam_width
+                
+                frame = point[0]
 
-    def draw_segment(self, image, start_point, end_point, color):
+                if(frame == "image01"):
+                    point[0] = "image"
+                    point[1][0] *= self.cam_height
+                    point[1][1] *= self.cam_width
+
+                elif(frame == "axle"):
+                    point[0] = "image"
+                    point_h = np.array([point[1][0], point[1][1], 1.0])
+                    pixel_h = np.dot(self.camera_calibration_extrinsics_inv, point_h) #point_h must be [x,y,1]
+                    pixel_h = pixel_h / pixel_h[2]
+                    pixel = pixel_h[0:2] 
+                    pixel = [int(i) for i in pixel] #pixel index must be integers
+                    point[1][0] = pixel[1]
+                    point[1][1] = pixel[0] #image frame points are [row, collumn]
+
+    @staticmethod
+    def draw_segment(image, start_point, end_point, color):
         
         defined_colors = {
             'red': ['rgb', [1, 0, 0]],
