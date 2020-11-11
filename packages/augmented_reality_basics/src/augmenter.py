@@ -9,7 +9,7 @@ from image_geometry import PinholeCameraModel
 class Augmenter:
     """
     AR utility class. Can be used to rectify camera images and project line segments on it.
-    Heavily inspired by: https://github.com/duckietown/dt-core/blob/952ebf205623a2a8317fcb9b922717bd4ea43c98/packages/image_processing/include/image_processing/rectification.py
+    Heavily inspired by https://github.com/duckietown/dt-core, image_processing package
     """
     def __init__(self, camera_info, homography, debug=False):
         

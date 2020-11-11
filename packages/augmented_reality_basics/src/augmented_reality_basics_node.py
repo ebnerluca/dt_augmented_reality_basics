@@ -60,7 +60,7 @@ class AugmentedRealityBasics(DTROS):
         
         # Load Map
         rospy.loginfo("[AugmentedRealityBasics]: Loading Map ...")
-        self.map_name = os.environ.get('MAP_FILE', 'hud.yaml').strip(".yaml")
+        self.map_name = os.environ.get('MAP_FILE', 'hud')
         rospy.loginfo("[AugmentedRealityBasics]: Map Name: %s" %self.map_name)
         self.map_dict = self.read_yaml_file(os.environ.get('DT_REPO_PATH', '/') + '/packages/augmented_reality_basics/maps/' + self.map_name + '.yaml')
 
